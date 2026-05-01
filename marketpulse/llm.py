@@ -94,10 +94,11 @@ class RuleBasedSupervisor(SupervisorRouter):
         else:
             skipped["promo"] = "No promotion data available in records."
 
-        reasoning = (
-            f"Selected {', '.join(selected)} based on available data fields and feature flags. "
-            f"Skipped {', '.join(skipped.keys())} due to missing data."
-        )
+        reasoning = f"Selected {', '.join(selected)} based on available data fields and feature flags."
+        if skipped:
+            reasoning += f" Skipped {', '.join(skipped.keys())} due to missing data."
+        else:
+            reasoning += " No workers were skipped."
 
         return SupervisorDecision(
             selected_workers=selected,
@@ -145,7 +146,7 @@ class LLMSupervisor(SupervisorRouter):
             decision_text = getattr(response, "text", "")
 
             # Parse the LLM response into structured decision
-            return self._parse_routing_decision(decision_text, data_summary)
+            return self._parse_routing_decision(decision_text, records, flags)
         except Exception as exc:
             # Fallback to rule-based on LLM failure
             return RuleBasedSupervisor().route(records, flags)
@@ -233,7 +234,10 @@ Only select workers that have relevant data available. At least 2 workers should
         return prompt
 
     def _parse_routing_decision(
-        self, decision_text: str, data_summary: dict[str, Any]
+        self,
+        decision_text: str,
+        records: list[MarketRecord],
+        flags: FeatureFlags,
     ) -> SupervisorDecision:
         """Parse LLM response into structured decision."""
         selected: list[WorkerName] = []
@@ -266,10 +270,7 @@ Only select workers that have relevant data available. At least 2 workers should
 
         # Fallback if parsing failed
         if not selected:
-            return RuleBasedSupervisor().route(
-                [MarketRecord.model_validate({"week_start": "2024-01-01", "competitor": "test", "product": "test", "price": 1.0, "promo": "", "social_mentions": 0, "social_sentiment": 0.0, "traffic_index": 0.0, "review_score": 0.0, "notes": ""})],
-                FeatureFlags()
-            )
+            return RuleBasedSupervisor().route(records, flags)
 
         return SupervisorDecision(
             selected_workers=selected,

@@ -36,6 +36,39 @@ class MarketRecord(BaseModel):
         return v if v else ""
 
 
+class PricePoint(BaseModel):
+    """Individual SKU-level pricing data point for a competitor."""
+
+    sku: str
+    price: float = Field(gt=0, description="Price must be positive")
+    competitor: str
+    week_start: date
+    product: str
+
+
+class SentimentSummary(BaseModel):
+    """Per-competitor sentiment summary with themes and sample review text."""
+
+    competitor: str
+    overall_sentiment: float = Field(ge=-1.0, le=1.0)
+    review_themes: list[str] = Field(default_factory=list)
+    sample_reviews: list[str] = Field(default_factory=list)
+    sentiment_distribution: dict[str, int] = Field(default_factory=dict)
+    review_count: int = Field(ge=0, default=0)
+
+
+class Promotion(BaseModel):
+    """Individual promotion artifact per competitor and product."""
+
+    competitor: str
+    promo_type: str
+    discount_depth: float = Field(ge=0.0, le=1.0)
+    promo_copy: str
+    start_date: date
+    end_date: date | None = None
+    product: str | None = None
+
+
 class FeatureFlags(BaseModel):
     """Feature flags for bonus functionality."""
 
@@ -279,9 +312,9 @@ class MarketPulseState(BaseModel):
     aggregated: AggregatedInsight | None = None
 
     # Required explicit state fields
-    pricing_data: PricingData | None = None
-    sentiment_data: SentimentData | None = None
-    promo_data: PromoData | None = None
+    pricing_data: dict[str, list[PricePoint]] = Field(default_factory=dict)
+    sentiment_data: dict[str, SentimentSummary] = Field(default_factory=dict)
+    promo_data: dict[str, list[Promotion]] = Field(default_factory=dict)
     social_data: SocialData | None = None  # Phase 6 bonus field
 
     # Final outputs

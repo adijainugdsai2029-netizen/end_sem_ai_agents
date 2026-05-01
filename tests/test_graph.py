@@ -65,24 +65,30 @@ def test_required_state_fields_are_populated() -> None:
     completed = MarketPulseWorkflow().run(_state())
 
     # Check required explicit state fields
-    assert completed.pricing_data is not None, "pricing_data field must be populated"
-    assert completed.sentiment_data is not None, "sentiment_data field must be populated"
-    assert completed.promo_data is not None, "promo_data field must be populated"
+    assert completed.pricing_data, "pricing_data field must be populated"
+    assert completed.sentiment_data, "sentiment_data field must be populated"
+    assert completed.promo_data, "promo_data field must be populated"
 
     # Check structured brief
     assert completed.structured_brief is not None, "structured_brief field must be populated"
 
-    # Verify pricing data structure
-    assert hasattr(completed.pricing_data, "lowest_average_price")
-    assert hasattr(completed.pricing_data, "highest_average_price")
-    assert hasattr(completed.pricing_data, "price_spread")
+    # Verify required contract shapes
+    assert isinstance(completed.pricing_data, dict)
+    assert isinstance(completed.sentiment_data, dict)
+    assert isinstance(completed.promo_data, dict)
 
-    # Verify sentiment data structure
-    assert hasattr(completed.sentiment_data, "overall_sentiment_leader")
-    assert hasattr(completed.sentiment_data, "leader_sentiment_score")
+    first_pricing_key = next(iter(completed.pricing_data))
+    assert len(completed.pricing_data[first_pricing_key]) > 0
+    assert hasattr(completed.pricing_data[first_pricing_key][0], "sku")
+    assert hasattr(completed.pricing_data[first_pricing_key][0], "price")
 
-    # Verify promo data structure
-    assert hasattr(completed.promo_data, "most_active_promoter")
+    first_sentiment_key = next(iter(completed.sentiment_data))
+    assert hasattr(completed.sentiment_data[first_sentiment_key], "overall_sentiment")
+    assert hasattr(completed.sentiment_data[first_sentiment_key], "review_themes")
+
+    first_promo_key = next(iter(completed.promo_data))
+    assert len(completed.promo_data[first_promo_key]) > 0
+    assert hasattr(completed.promo_data[first_promo_key][0], "promo_type")
 
 
 def test_pricing_delta_flag_adds_week_over_week_findings() -> None:

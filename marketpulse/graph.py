@@ -150,29 +150,13 @@ class MarketPulseWorkflow:
         state.add_log("structured_data", "started")
 
         # Create structured data from worker outputs
-        state.pricing_data = create_pricing_data(state.worker_outputs)
-        state.sentiment_data = create_sentiment_data(state.worker_outputs)
-        state.promo_data = create_promo_data(state.worker_outputs)
+        state.pricing_data = create_pricing_data(state.records, state.worker_outputs)
+        state.sentiment_data = create_sentiment_data(state.records, state.worker_outputs)
+        state.promo_data = create_promo_data(state.records, state.worker_outputs)
 
         # Phase 6: Create social data if social worker ran
         if "social" in state.worker_outputs:
-            from marketpulse.contracts import SocialData
-            social_output = state.worker_outputs["social"]
-            # Create basic social data structure
-            state.social_data = SocialData(
-                total_mentions=social_output.metrics.get("total_mentions", 0),
-                overall_sentiment=social_output.metrics.get("overall_sentiment", 0.0),
-                sentiment_distribution={
-                    "positive": social_output.metrics.get("positive_mentions", 0),
-                    "negative": social_output.metrics.get("negative_mentions", 0),
-                    "neutral": social_output.metrics.get("neutral_mentions", 0),
-                },
-                platform_insights={},
-                top_mentions=[],
-                influencer_analysis={},
-                trend_analysis="",
-                recommendations=[],
-            )
+            state.social_data = create_social_data(state.worker_outputs["social"])
 
         # Create structured brief
         if state.aggregated and state.supervisor_decision:

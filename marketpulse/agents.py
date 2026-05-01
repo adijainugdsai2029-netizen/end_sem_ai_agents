@@ -9,9 +9,9 @@ from marketpulse.contracts import (
     AggregatedInsight,
     FeatureFlags,
     MarketRecord,
-    PricingData,
-    PromoData,
-    SentimentData,
+    PricePoint,
+    Promotion,
+    SentimentSummary,
     SupervisorDecision,
     WorkerName,
     WorkerOutput,
@@ -260,69 +260,133 @@ def _pricing_delta_bullets(
     return bullets
 
 
-def create_pricing_data(outputs: dict[WorkerName, WorkerOutput]) -> PricingData:
-    """Create structured pricing data from worker outputs."""
+def create_pricing_data(
+    records: list[MarketRecord],
+    outputs: dict[WorkerName, WorkerOutput],
+) -> dict[str, list[PricePoint]]:
+    """Create required pricing_data shape: dict[str, list[PricePoint]]."""
     if "pricing" not in outputs:
-        return PricingData(
-            lowest_average_price=0.0,
-            highest_average_price=0.0,
-            price_spread=0.0,
-            lowest_priced_competitor="",
-            highest_priced_competitor="",
+        return {}
+
+    pricing_data: dict[str, list[PricePoint]] = defaultdict(list)
+    for record in records:
+        sku = f"{record.competitor}_{record.product}".replace(" ", "_")
+        pricing_data[record.competitor].append(
+            PricePoint(
+                sku=sku,
+                price=record.price,
+                competitor=record.competitor,
+                week_start=record.week_start,
+                product=record.product,
+            )
         )
-
-    pricing = outputs["pricing"]
-    metrics = pricing.metrics
-
-    return PricingData(
-        lowest_average_price=float(metrics.get("lowest_average_price", 0.0)),
-        highest_average_price=float(metrics.get("highest_average_price", 0.0)),
-        price_spread=float(metrics.get("price_spread", 0.0)),
-        lowest_priced_competitor=pricing.bullets[0].split(" owns the lowest")[0].strip() if pricing.bullets else "",
-        highest_priced_competitor=pricing.bullets[1].split(" is highest")[0].strip() if len(pricing.bullets) > 1 else "",
-    )
+    return dict(pricing_data)
 
 
-def create_sentiment_data(outputs: dict[WorkerName, WorkerOutput]) -> SentimentData:
-    """Create structured sentiment data from worker outputs."""
+def create_sentiment_data(
+    records: list[MarketRecord],
+    outputs: dict[WorkerName, WorkerOutput],
+) -> dict[str, SentimentSummary]:
+    """Create required sentiment_data shape: dict[str, SentimentSummary]."""
     if "sentiment" not in outputs:
-        return SentimentData(
-            overall_sentiment_leader="",
-            leader_sentiment_score=0.0,
-            sentiment_concern="",
-            concern_sentiment_score=0.0,
+        return {}
+
+    by_competitor = _group_by_competitor(records)
+    sentiment_data: dict[str, SentimentSummary] = {}
+    for competitor, competitor_records in by_competitor.items():
+        sentiment_scores = [row.social_sentiment for row in competitor_records]
+        avg_sentiment = mean(sentiment_scores) if sentiment_scores else 0.0
+
+        positive = sum(1 for score in sentiment_scores if score > 0.2)
+        negative = sum(1 for score in sentiment_scores if score < -0.2)
+        neutral = len(sentiment_scores) - positive - negative
+
+        themes = _derive_sentiment_themes(avg_sentiment)
+        sample_reviews = [row.notes for row in competitor_records if row.notes][:3]
+
+        sentiment_data[competitor] = SentimentSummary(
+            competitor=competitor,
+            overall_sentiment=avg_sentiment,
+            review_themes=themes,
+            sample_reviews=sample_reviews,
+            sentiment_distribution={
+                "positive": positive,
+                "negative": negative,
+                "neutral": neutral,
+            },
+            review_count=len(competitor_records),
         )
-
-    sentiment = outputs["sentiment"]
-    metrics = sentiment.metrics
-
-    return SentimentData(
-        overall_sentiment_leader=str(metrics.get("sentiment_leader", "")),
-        leader_sentiment_score=float(metrics.get("leader_sentiment_score", 0.0)),
-        sentiment_concern=str(metrics.get("concern", "")),
-        concern_sentiment_score=float(metrics.get("concern_sentiment_score", 0.0)),
-    )
+    return sentiment_data
 
 
-def create_promo_data(outputs: dict[WorkerName, WorkerOutput]) -> PromoData:
-    """Create structured promotion data from worker outputs."""
+def create_promo_data(
+    records: list[MarketRecord],
+    outputs: dict[WorkerName, WorkerOutput],
+) -> dict[str, list[Promotion]]:
+    """Create required promo_data shape: dict[str, list[Promotion]]."""
     if "promo" not in outputs:
-        return PromoData(
-            most_active_promoter="",
-            promotion_frequency={},
-            promotion_types={},
-            effectiveness_score={},
+        return {}
+
+    promo_data: dict[str, list[Promotion]] = defaultdict(list)
+    for record in records:
+        promo_copy = record.promo.strip()
+        if not promo_copy:
+            continue
+
+        promo_data[record.competitor].append(
+            Promotion(
+                competitor=record.competitor,
+                promo_type=_classify_promo_type(promo_copy),
+                discount_depth=_infer_discount_depth(promo_copy),
+                promo_copy=promo_copy,
+                start_date=record.week_start,
+                end_date=None,
+                product=record.product,
+            )
         )
+    return dict(promo_data)
 
-    promo = outputs["promo"]
-    metrics = promo.metrics
 
-    return PromoData(
-        most_active_promoter=str(metrics.get("most_active_promoter", "")),
-        promotion_frequency={
-            "total": int(metrics.get("total_promotions", 0)),
-            "leader": int(metrics.get("promotion_leader_count", 0)),
-        },
-        promotion_types={},
-        effectiveness_score={},
-    )
+def _derive_sentiment_themes(avg_sentiment: float) -> list[str]:
+    """Create lightweight themes aligned with overall sentiment direction."""
+    if avg_sentiment >= 0.35:
+        return ["product quality", "brand trust", "repeat intent"]
+    if avg_sentiment >= 0.1:
+        return ["value perception", "shipping experience", "fit and comfort"]
+    return ["price sensitivity", "service friction", "feature dissatisfaction"]
+
+
+def _classify_promo_type(promo_copy: str) -> str:
+    """Classify promo text into a coarse promotion type."""
+    lower = promo_copy.casefold()
+    if "free shipping" in lower:
+        return "shipping"
+    if "bundle" in lower:
+        return "bundle"
+    if "loyalty" in lower or "points" in lower:
+        return "loyalty"
+    if "retention" in lower or "trial" in lower or "subscription" in lower:
+        return "retention"
+    if "code" in lower or "coupon" in lower:
+        return "coupon"
+    if "sale" in lower or "discount" in lower or "cashback" in lower:
+        return "discount"
+    return "offer"
+
+
+def _infer_discount_depth(promo_copy: str) -> float:
+    """Infer rough discount depth from promotional copy text."""
+    lower = promo_copy.casefold()
+    if "flash" in lower:
+        return 0.25
+    if "weekend sale" in lower:
+        return 0.20
+    if "coupon" in lower or "code" in lower:
+        return 0.15
+    if "cashback" in lower:
+        return 0.10
+    if "free shipping" in lower:
+        return 0.08
+    if "loyalty" in lower or "points" in lower:
+        return 0.10
+    return 0.05

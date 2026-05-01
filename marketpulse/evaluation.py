@@ -65,13 +65,13 @@ def _check_required_workers(state: MarketPulseState) -> bool:
     """Check that required workers are present."""
     required = {"pricing", "sentiment", "promo"}
     actual = set(state.worker_outputs.keys())
-    return required == actual
+    return required.issubset(actual)
 
 
 def _check_structured_data(state: MarketPulseState) -> bool:
     """Check that required structured data fields are populated."""
     return (
-        state.pricing_data is not None
-        and state.sentiment_data is not None
-        and state.promo_data is not None
+        bool(state.pricing_data)
+        and bool(state.sentiment_data)
+        and bool(state.promo_data)
     )
