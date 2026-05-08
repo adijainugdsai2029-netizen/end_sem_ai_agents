@@ -36,6 +36,3 @@ Primary contract: `MarketPulseState`.
 - `reviews`: runs when selected records contain review score data.
 - `social`: runs only when `enable_social_worker` is true.
 
-## Reliability Position
-
-CSV is the source of truth for demo reliability. Live data sources and scheduler behavior remain behind feature flags, so bonus work cannot destabilize the required flow.
